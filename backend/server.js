@@ -307,22 +307,23 @@ app.get("/api/dashboard", async (req, res) => {
 
     const [salesData, categoryData] = await Promise.all([
       query(
-        `SELECT DATE_FORMAT(sale_date, '%Y-%m-%d') as date, SUM(total) as total 
-         FROM sales 
-         WHERE sale_date BETWEEN ? AND ?
-         GROUP BY DATE(sale_date) 
-         ORDER BY sale_date ASC`,
+        `SELECT DATE(sale_date) as date, SUM(total) as total 
+     FROM sales 
+     WHERE sale_date BETWEEN ? AND ?
+     GROUP BY DATE(sale_date) 
+     ORDER BY date ASC`,
         [startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]]
       ),
       query(
         `SELECT p.category, SUM(s.total) as total
-         FROM sales s
-         JOIN products p ON s.product_id = p.id
-         WHERE s.sale_date BETWEEN ? AND ?
-         GROUP BY p.category`,
+     FROM sales s
+     JOIN products p ON s.product_id = p.id
+     WHERE s.sale_date BETWEEN ? AND ?
+     GROUP BY p.category`,
         [startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]]
       )
     ]);
+
 
     const dateLabels = [];
     for (let i = 0; i < 7; i++) {
@@ -757,11 +758,11 @@ app.get("/api/reports", async (req, res) => {
 
     const [dailySales, categorySales, topProducts, financialSummary, paymentMethods, stockMovements] = await Promise.all([
       query(
-        `SELECT DATE_FORMAT(s.sale_date, '%Y-%m-%d') as label, SUM(s.total) as value 
-         FROM sales s 
-         WHERE s.sale_date BETWEEN ? AND ? 
-         GROUP BY DATE(s.sale_date) 
-         ORDER BY s.sale_date ASC`,
+        `SELECT DATE(s.sale_date) as label, SUM(s.total) as value 
+   FROM sales s 
+   WHERE s.sale_date BETWEEN ? AND ? 
+   GROUP BY DATE(s.sale_date) 
+   ORDER BY label ASC`,
         [start, end]
       ),
       query(
