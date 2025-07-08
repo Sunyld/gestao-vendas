@@ -147,7 +147,7 @@ function Reports() {
     }
   };
 
-  const handleExport = async (format: 'pdf' | 'excel') => {
+  const handleExport = async (format: 'pdf' | 'xlsx') => {
     try {
       const response = await axios.get('http://localhost:3001/api/reports/export', {
         params: { start: startDate, end: endDate, format },
@@ -239,7 +239,7 @@ function Reports() {
             </button>
             <button
               disabled={loading}
-              onClick={() => handleExport('excel')}
+              onClick={() => handleExport('xlsx')}
               className="flex items-center gap-1 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600"
             >
               <Download className="w-4 h-4" /> Excel
