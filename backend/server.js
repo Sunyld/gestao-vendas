@@ -884,7 +884,7 @@ app.get("/api/reports", async (req, res) => {
 app.get("/api/reports/export", async (req, res) => {
   try {
     const { start, end, format } = req.query;
-    if (!start || !end || !['pdf', 'excel'].includes(format)) {
+    if (!start || !end || !['pdf', 'xlsx'].includes(format)) {
       return res.status(400).json({ message: "Parâmetros inválidos." });
     }
 
@@ -941,6 +941,12 @@ app.get("/api/reports/export", async (req, res) => {
       )
     ]);
 
+    //convertendo e tratando erros para não ser null e gerar erros
+    const totalRevenue = Number(financialSummary[0].totalRevenue) || 0;
+    const averageTicket = Number(financialSummary[0].averageTicket) || 0;
+    const totalSales = Number(financialSummary[0].totalSales) || 0;
+    const netProfit = Number(financialSummary[0].netProfit) || 0;
+
     if (format === 'pdf') {
       const doc = new PDFDocument();
       res.setHeader('Content-Type', 'application/pdf');
@@ -953,42 +959,46 @@ app.get("/api/reports/export", async (req, res) => {
 
       doc.fontSize(14).text('Resumo Financeiro');
       doc.moveDown(0.5);
-      doc.fontSize(10).text(`Faturamento Total: R$ ${financialSummary[0].totalRevenue.toFixed(2)}`);
-      doc.text(`Ticket Médio: R$ ${financialSummary[0].averageTicket.toFixed(2)}`);
-      doc.text(`Total de Vendas: ${financialSummary[0].totalSales}`);
-      doc.text(`Lucro Líquido: R$ ${financialSummary[0].netProfit.toFixed(2)}`);
+      doc.fontSize(10).text(`Faturamento Total: R$ ${totalRevenue.toFixed(2)}`);
+      doc.text(`Ticket Médio: R$ ${averageTicket.toFixed(2)}`);
+      doc.text(`Total de Vendas: ${totalSales}`);
+      doc.text(`Lucro Líquido: R$ ${netProfit.toFixed(2)}`);
       doc.moveDown();
 
       doc.fontSize(14).text('Vendas por Período');
       doc.moveDown(0.5);
       doc.fontSize(10);
       dailySales.forEach((sale) => {
-        doc.text(`${sale.label}: R$ ${sale.value.toFixed(2)}`);
+        const value = Number(sale.value) || 0;
+        doc.text(`${sale.label}: R$ ${value.toFixed(2)}`);
       });
       doc.moveDown();
 
       doc.fontSize(14).text('Vendas por Categoria');
       doc.moveDown(0.5);
       categorySales.forEach((cat) => {
-        doc.text(`${cat.label || 'Sem Categoria'}: R$ ${cat.value.toFixed(2)}`);
+        const value = Number(cat.value) || 0;
+        doc.text(`${cat.label || 'Sem Categoria'}: R$ ${value.toFixed(2)}`);
       });
       doc.moveDown();
 
       doc.fontSize(14).text('Produtos Mais Vendidos');
       doc.moveDown(0.5);
       topProducts.forEach((prod) => {
-        doc.text(`${prod.label}: ${prod.value} unidades`);
+        const value = Number(prod.value) || 0;
+        doc.text(`${prod.label}: ${value} unidades`);
       });
       doc.moveDown();
 
       doc.fontSize(14).text('Movimentações de Estoque');
       doc.moveDown(0.5);
       stockMovements.forEach((mov) => {
-        doc.text(`${mov.label}: ${mov.value} unidades`);
+        const value = Number(mov.value) || 0;
+        doc.text(`${mov.label}: ${value} unidades`);
       });
 
       doc.end();
-    } else if (format === 'excel') {
+    } else if (format === 'xlsx') {
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet('Relatório de Vendas');
 
@@ -1004,17 +1014,18 @@ app.get("/api/reports/export", async (req, res) => {
 
       worksheet.addRow(['Resumo Financeiro']);
       worksheet.getCell('A3').font = { bold: true, size: 14 };
-      worksheet.addRow(['Faturamento Total', `R$ ${financialSummary[0].totalRevenue.toFixed(2)}`]);
-      worksheet.addRow(['Ticket Médio', `R$ ${financialSummary[0].averageTicket.toFixed(2)}`]);
-      worksheet.addRow(['Total de Vendas', financialSummary[0].totalSales]);
-      worksheet.addRow(['Lucro Líquido', `R$ ${financialSummary[0].netProfit.toFixed(2)}`]);
+      worksheet.addRow(['Faturamento Total', `R$ ${totalRevenue.toFixed(2)}`]);
+      worksheet.addRow(['Ticket Médio', `R$ ${averageTicket.toFixed(2)}`]);
+      worksheet.addRow(['Total de Vendas', totalSales]);
+      worksheet.addRow(['Lucro Líquido', `R$ ${netProfit.toFixed(2)}`]);
       worksheet.addRow([]);
 
       worksheet.addRow(['Vendas por Período']);
       worksheet.getCell('A8').font = { bold: true, size: 14 };
       worksheet.addRow(['Data', 'Valor']);
       dailySales.forEach((sale) => {
-        worksheet.addRow([sale.label, sale.value]);
+        const value = Number(sale.value) || 0;
+        worksheet.addRow([sale.label, value]);
       });
       worksheet.addRow([]);
 
@@ -1022,7 +1033,8 @@ app.get("/api/reports/export", async (req, res) => {
       worksheet.getCell(`A${worksheet.rowCount}`).font = { bold: true, size: 14 };
       worksheet.addRow(['Categoria', 'Valor']);
       categorySales.forEach((cat) => {
-        worksheet.addRow([cat.label || 'Sem Categoria', cat.value]);
+        const value = Number(cat.value) || 0;
+        worksheet.addRow([cat.label || 'Sem Categoria', value]);
       });
       worksheet.addRow([]);
 
@@ -1030,7 +1042,8 @@ app.get("/api/reports/export", async (req, res) => {
       worksheet.getCell(`A${worksheet.rowCount}`).font = { bold: true, size: 14 };
       worksheet.addRow(['Produto', 'Unidades Vendidas']);
       topProducts.forEach((prod) => {
-        worksheet.addRow([prod.label, prod.value]);
+        const value = Number(prod.value) || 0;
+        worksheet.addRow([prod.label, value]);
       });
       worksheet.addRow([]);
 
@@ -1038,7 +1051,8 @@ app.get("/api/reports/export", async (req, res) => {
       worksheet.getCell(`A${worksheet.rowCount}`).font = { bold: true, size: 14 };
       worksheet.addRow(['Tipo', 'Quantidade']);
       stockMovements.forEach((mov) => {
-        worksheet.addRow([mov.label, mov.value]);
+        const value = Number(mov.value) || 0;
+        worksheet.addRow([mov.label, value]);
       });
 
       worksheet.columns.forEach((column) => {
@@ -1049,8 +1063,10 @@ app.get("/api/reports/export", async (req, res) => {
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename=relatorio_vendas_${start}_a_${end}.xlsx`);
 
-      await workbook.xlsx.write(res);
-      res.end();
+      await workbook.xlsx.writeBuffer().then((buffer) => {
+        res.setHeader('Content-Length', buffer.length);
+        res.end(buffer);
+      });
     }
   } catch (error) {
     console.error("Erro ao exportar relatório:", error);
