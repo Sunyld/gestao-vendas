@@ -375,75 +375,126 @@ app.get("/api/dashboard", async (req, res) => {
     return res.status(500).json({ message: "Erro ao carregar dashboard." });
   }
 });
-
 // --- CLIENTES ---
+// Listar clientes com veículos e itens
 app.get("/api/customers", async (req, res) => {
   try {
-    const data = await query("SELECT * FROM customers ORDER BY created_at DESC");
-    return res.status(200).json(data);
+    const customers = await query("SELECT * FROM customers ORDER BY created_at DESC");
+    // Buscando veículos e itens de cada cliente
+    for (const customer of customers) {
+      const vehicles = await query("SELECT * FROM vehicles WHERE customer_id = ?", [customer.id]);
+      for (const vehicle of vehicles) {
+        const items = await query("SELECT * FROM repair_items WHERE vehicle_id = ?", [vehicle.id]);
+        vehicle.items = items;
+      }
+      customer.vehicles = vehicles;
+    }
+    return res.status(200).json(customers);
   } catch (error) {
     console.error("Erro ao buscar clientes:", error);
     return res.status(500).json({ message: "Erro ao buscar clientes." });
   }
 });
 
+// Criar cliente com veículos e itens
 app.post("/api/customers", async (req, res) => {
   try {
-    const { name, email, phone, cpf_cnpj, address, city, state, postal_code } = req.body;
-    const id = cryptoRandomUUID();
+    const { name, email, phone, cpf_NUIT, address, city, state, postal_code, vehicles } = req.body;
+    const customerId = randomUUID();
     await query(
-      "INSERT INTO customers (id, name, email, phone, cpf_cnpj, address, city, state, postal_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      [id, name, email, phone, cpf_cnpj, address, city, state, postal_code]
+      "INSERT INTO customers (id, name, email, phone, cpf_NUIT, address, city, state, postal_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [customerId, name, email, phone, cpf_NUIT, address, city, state, postal_code]
     );
-    const cliente = await query("SELECT * FROM customers WHERE id = ?", [id]);
-    return res.status(201).json(cliente[0]);
+
+    if (vehicles && vehicles.length > 0) {
+      for (const vehicle of vehicles) {
+        const vehicleId = randomUUID();
+        await query(
+          "INSERT INTO vehicles (id, customer_id, model, plate) VALUES (?, ?, ?, ?)",
+          [vehicleId, customerId, vehicle.model, vehicle.plate]
+        );
+        if (vehicle.items && vehicle.items.length > 0) {
+          for (const item of vehicle.items) {
+            await query(
+              "INSERT INTO repair_items (id, vehicle_id, description, cost) VALUES (?, ?, ?, ?)",
+              [randomUUID(), vehicleId, item.description, item.cost]
+            );
+          }
+        }
+      }
+    }
+
+    const createdCustomer = await query("SELECT * FROM customers WHERE id = ?", [customerId]);
+    return res.status(201).json(createdCustomer[0]);
   } catch (error) {
     console.error("Erro ao cadastrar cliente:", error);
     return res.status(500).json({ message: "Erro ao cadastrar cliente." });
   }
 });
 
+// Atualizar cliente, veículos e itens
 app.put("/api/customers/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, email, phone, cpf_cnpj, address, city, state, postal_code } = req.body;
+    const { name, email, phone, cpf_NUIT, address, city, state, postal_code, vehicles } = req.body;
 
     const result = await query(
-      `UPDATE customers 
-       SET name = ?, email = ?, phone = ?, cpf_cnpj = ?, address = ?, city = ?, state = ?, postal_code = ? 
-       WHERE id = ?`,
-      [name, email, phone, cpf_cnpj, address, city, state, postal_code, id]
+      "UPDATE customers SET name=?, email=?, phone=?, cpf_NUIT=?, address=?, city=?, state=?, postal_code=? WHERE id=?",
+      [name, email, phone, cpf_NUIT, address, city, state, postal_code, id]
     );
 
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "Cliente não encontrado." });
+    if (result.affectedRows === 0) return res.status(404).json({ message: "Cliente não encontrado." });
+
+    // Atualizar veículos e itens
+    if (vehicles && vehicles.length > 0) {
+      for (const vehicle of vehicles) {
+        if (vehicle.id) {
+          await query("UPDATE vehicles SET model=?, plate=? WHERE id=?", [vehicle.model, vehicle.plate, vehicle.id]);
+        } else {
+          const vehicleId = randomUUID();
+          await query("INSERT INTO vehicles (id, customer_id, model, plate) VALUES (?, ?, ?, ?)", [vehicleId, id, vehicle.model, vehicle.plate]);
+          vehicle.id = vehicleId;
+        }
+
+        if (vehicle.items && vehicle.items.length > 0) {
+          for (const item of vehicle.items) {
+            if (item.id) {
+              await query("UPDATE repair_items SET description=?, cost=? WHERE id=?", [item.description, item.cost, item.id]);
+            } else {
+              await query("INSERT INTO repair_items (id, vehicle_id, description, cost) VALUES (?, ?, ?, ?)", [randomUUID(), vehicle.id, item.description, item.cost]);
+            }
+          }
+        }
+      }
     }
 
-    const clienteAtualizado = await query("SELECT * FROM customers WHERE id = ?", [id]);
-    return res.status(200).json(clienteAtualizado[0]);
+    const updatedCustomer = await query("SELECT * FROM customers WHERE id = ?", [id]);
+    return res.status(200).json(updatedCustomer[0]);
   } catch (error) {
     console.error("Erro ao atualizar cliente:", error);
-    return res.status(500).json({ message: "Erro ao salvar cliente." });
+    return res.status(500).json({ message: "Erro ao atualizar cliente." });
   }
 });
 
+// Deletar cliente
 app.delete("/api/customers/:id", async (req, res) => {
   try {
     const { id } = req.params;
+    const customer = await query("SELECT * FROM customers WHERE id=?", [id]);
+    if (!customer.length) return res.status(404).json({ message: "Cliente não encontrado." });
 
-    const cliente = await query("SELECT * FROM customers WHERE id = ?", [id]);
-    if (cliente.length === 0) {
-      return res.status(404).json({ message: "Cliente não encontrado." });
-    }
+    // Verificar se há itens pendentes
+    const pendingItems = await query(`
+      SELECT ri.* FROM repair_items ri
+      JOIN vehicles v ON ri.vehicle_id = v.id
+      WHERE v.customer_id=?`, [id]
+    );
+    if (pendingItems.length > 0) return res.status(400).json({ message: "Não é possível excluir cliente com itens registrados." });
 
-    const vendas = await query("SELECT COUNT(*) as total FROM sales WHERE customer_id = ?", [id]);
-    if (vendas[0].total > 0) {
-      return res.status(400).json({
-        message: "Não é possível excluir o cliente porque ele possui vendas registradas."
-      });
-    }
+    await query("DELETE FROM repair_items WHERE vehicle_id IN (SELECT id FROM vehicles WHERE customer_id=?)", [id]);
+    await query("DELETE FROM vehicles WHERE customer_id=?", [id]);
+    await query("DELETE FROM customers WHERE id=?", [id]);
 
-    const result = await query("DELETE FROM customers WHERE id = ?", [id]);
     return res.status(200).json({ message: "Cliente excluído com sucesso." });
   } catch (error) {
     console.error("Erro ao excluir cliente:", error);
@@ -451,107 +502,22 @@ app.delete("/api/customers/:id", async (req, res) => {
   }
 });
 
-// --- VENDAS ---
-app.post("/api/sales", async (req, res) => {
+// --- ITENS DE REPARO / PAGAMENTOS ---
+// Marcar item como pago
+app.post("/api/repair-items/:id/pay", async (req, res) => {
   try {
-    const { items, paymentMethod, customer_id } = req.body;
+    const { id } = req.params;
+    const { method, paidValue } = req.body;
+    if (!method) return res.status(400).json({ message: "Método de pagamento obrigatório." });
 
-    if (!items || !Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ message: "Itens da venda são obrigatórios." });
-    }
-
-    const validPaymentMethods = ['dinheiro', 'pix', 'cartao'];
-    if (!paymentMethod || !validPaymentMethods.includes(paymentMethod)) {
-      return res.status(400).json({ message: "Método de pagamento inválido." });
-    }
-
-    let totalSale = 0;
-    const saleDate = new Date().toISOString().split('T')[0];
-
-    for (const item of items) {
-      const produto = await query("SELECT * FROM products WHERE id = ?", [item.id]);
-      if (!produto || produto.length === 0) {
-        return res.status(404).json({ message: `Produto com ID ${item.id} não encontrado.` });
-      }
-      if (produto[0].stock < item.quantity) {
-        return res.status(400).json({ message: `Estoque insuficiente para o produto ${produto[0].name}.` });
-      }
-      totalSale += produto[0].price * item.quantity;
-    }
-
-    for (const item of items) {
-      const produto = await query("SELECT * FROM products WHERE id = ?", [item.id]);
-
-      await query(
-        `INSERT INTO sales 
-        (id, product_id, quantity, price, total, sale_date, customer_id, payment_method) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          cryptoRandomUUID(),
-          item.id,
-          item.quantity,
-          produto[0].price,
-          produto[0].price * item.quantity,
-          saleDate,
-          customer_id || null,
-          paymentMethod
-        ]
-      );
-
-      await query("UPDATE products SET stock = stock - ? WHERE id = ?", [item.quantity, item.id]);
-
-      await query(
-        "INSERT INTO stock_movements (id, product_id, type, quantity, description) VALUES (?, ?, ?, ?, ?)",
-        [cryptoRandomUUID(), item.id, "out", item.quantity, "Venda realizada"]
-      );
-    }
-
-    return res.status(201).json({
-      message: "Venda registrada com sucesso.",
-      total: totalSale,
-      date: saleDate
-    });
+    await query("UPDATE repair_items SET paid=1, payment_method=?, paid_value=? WHERE id=?", [method, paidValue || 0, id]);
+    return res.status(200).json({ message: "Pagamento confirmado." });
   } catch (error) {
-    console.error("Erro ao registrar venda:", error);
-    return res.status(500).json({ message: "Erro ao registrar venda." });
+    console.error("Erro ao registrar pagamento:", error);
+    return res.status(500).json({ message: "Erro ao registrar pagamento." });
   }
 });
 
-app.get("/api/sales", async (req, res) => {
-  try {
-    const { startDate, endDate, paymentMethod } = req.query;
-
-    let sql = `
-      SELECT s.*, p.name AS product_name, c.name AS customer_name 
-      FROM sales s 
-      LEFT JOIN products p ON p.id = s.product_id
-      LEFT JOIN customers c ON c.id = s.customer_id
-      WHERE 1=1
-    `;
-    const params = [];
-
-    if (startDate) {
-      sql += " AND s.sale_date >= ?";
-      params.push(startDate);
-    }
-    if (endDate) {
-      sql += " AND s.sale_date <= ?";
-      params.push(endDate);
-    }
-    if (paymentMethod) {
-      sql += " AND s.payment_method = ?";
-      params.push(paymentMethod);
-    }
-
-    sql += " ORDER BY s.sale_date DESC";
-
-    const data = await query(sql, params);
-    return res.status(200).json(data);
-  } catch (error) {
-    console.error("Erro ao buscar vendas:", error);
-    return res.status(500).json({ message: "Erro ao buscar vendas." });
-  }
-});
 
 // --- HISTÓRICO DE VENDAS ---
 app.get("/api/sales/history", async (req, res) => {
