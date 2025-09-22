@@ -28,7 +28,7 @@ function Dashboard() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("http://localhost:3001/api/dashboard");
+      const res = await fetch("http://localhost:3001/api/reports/dashboard");
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.message || "Erro ao carregar dados");

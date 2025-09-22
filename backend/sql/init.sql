@@ -65,3 +65,95 @@ CREATE TABLE IF NOT EXISTS suppliers (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
+
+-- Tabela de veículos dos clientes
+CREATE TABLE IF NOT EXISTS vehicles (
+  id VARCHAR(36) PRIMARY KEY,
+  customer_id VARCHAR(36) NOT NULL,
+  model VARCHAR(100) NOT NULL,
+  plate VARCHAR(20) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+);
+
+-- Tabela de itens de reparo por veículo
+CREATE TABLE IF NOT EXISTS repair_items (
+  id VARCHAR(36) PRIMARY KEY,
+  vehicle_id VARCHAR(36) NOT NULL,
+  description VARCHAR(255) NOT NULL,
+  cost DECIMAL(10,2) NOT NULL DEFAULT 0,
+  paid TINYINT(1) NOT NULL DEFAULT 0,
+  payment_method VARCHAR(20) DEFAULT NULL,
+  paid_value DECIMAL(10,2) DEFAULT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE
+);
+
+
+  FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+
+);
+
+
+
+-- Tabela de clientes
+
+CREATE TABLE IF NOT EXISTS customers (
+
+  id VARCHAR(36) PRIMARY KEY,
+
+  name VARCHAR(100) NOT NULL,
+
+  email VARCHAR(150),
+
+  phone VARCHAR(20),
+
+  cpf_cnpj VARCHAR(20),
+
+  address TEXT,
+
+  city VARCHAR(100),
+
+  state VARCHAR(50),
+
+  postal_code VARCHAR(20),
+
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+
+);
+
+
+
+-- Tabela de fornecedores
+
+CREATE TABLE IF NOT EXISTS suppliers (
+
+  id VARCHAR(36) PRIMARY KEY,
+
+  company_name VARCHAR(100) NOT NULL,
+
+  cnpj VARCHAR(20),
+
+  email VARCHAR(150),
+
+  phone VARCHAR(20),
+
+  address TEXT,
+
+  city VARCHAR(100),
+
+  state VARCHAR(50),
+
+  contact_name VARCHAR(100),
+
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+
+);
+
+

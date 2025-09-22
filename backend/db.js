@@ -3,17 +3,22 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+const DB_HOST = process.env.DB_HOST || "localhost";
+const DB_USER = process.env.DB_USER || "root";
+const DB_PASSWORD = process.env.DB_PASSWORD || "";
+const DB_NAME = process.env.DB_NAME || "gestao_vendas";
+
 console.log("🔧 Criando pool de conexões MySQL com:");
-console.log("Host:", process.env.DB_HOST);
-console.log("User:", process.env.DB_USER);
-console.log("Password:", process.env.DB_PASSWORD ? "(definido)" : "(vazio)");
-console.log("Database:", process.env.DB_NAME);
+console.log("Host:", DB_HOST);
+console.log("User:", DB_USER);
+console.log("Password:", DB_PASSWORD ? "(definido)" : "(vazio)");
+console.log("Database:", DB_NAME);
 
 const pool = mysql.createPool({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
+  host: DB_HOST,
+  user: DB_USER,
+  password: DB_PASSWORD,
+  database: DB_NAME,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,

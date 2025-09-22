@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, ShoppingCart, Plus, Minus, Trash2, X, ArchiveRestore, ArchiveX, CheckCircle, AlertCircle } from 'lucide-react';
+import { Search, ShoppingCart, Plus, Minus, Trash2, X, ArchiveRestore, ArchiveX, CheckCircle, AlertCircle, FileText } from 'lucide-react';
 
 interface Product {
   id: string;
@@ -27,6 +27,16 @@ function Sales() {
   const [archivedCarts, setArchivedCarts] = useState<CartItem[][]>([]);
   const [notificationCount, setNotificationCount] = useState(0);
   const [archiveMessage, setArchiveMessage] = useState<{type: string, text: string} | null>(null);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyData, setHistoryData] = useState<any[]>([]);
+  const [confirmReturnId, setConfirmReturnId] = useState<string | null>(null);
+  const [historyStart, setHistoryStart] = useState<string>(new Date(Date.now() - 6*24*60*60*1000).toISOString().slice(0,10));
+  const [historyEnd, setHistoryEnd] = useState<string>(new Date().toISOString().slice(0,10));
+  const [customerQuery, setCustomerQuery] = useState('');
+  const [customerOptions, setCustomerOptions] = useState<{ id: string; name: string }[]>([]);
+  const [loadingCustomers, setLoadingCustomers] = useState(false);
 
   useEffect(() => {
     fetchProducts();
@@ -43,6 +53,34 @@ function Sales() {
     setNotificationCount(carts.length);
     localStorage.setItem('archivedCarts', JSON.stringify(carts));
   }
+  useEffect(() => {
+    let active = true;
+    async function fetchCustomers() {
+      if (!customerQuery || customerId) {
+        if (active) setCustomerOptions([]);
+        return;
+      }
+      setLoadingCustomers(true);
+      try {
+        const res = await fetch('http://localhost:3001/api/customers');
+        if (!res.ok) throw new Error('Erro ao carregar clientes');
+        const data = await res.json();
+        const q = customerQuery.toLowerCase();
+        const filtered = (data || [])
+          .filter((c: any) => (c.name || '').toLowerCase().startsWith(q))
+          .slice(0, 8)
+          .map((c: any) => ({ id: c.id, name: c.name }));
+        if (active) setCustomerOptions(filtered);
+      } catch (_) {
+        if (active) setCustomerOptions([]);
+      } finally {
+        if (active) setLoadingCustomers(false);
+      }
+    }
+    fetchCustomers();
+    return () => { active = false; };
+  }, [customerQuery, customerId]);
+
 
   async function fetchProducts() {
     setLoading(true);
@@ -177,18 +215,47 @@ function Sales() {
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-gray-900">Vendas</h2>
-        <button
-          onClick={() => setShowArchiveModal(true)}
-          className="flex items-center space-x-2 bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded-md relative"
-        >
-          <ArchiveRestore className="w-4 h-4" />
-          <span className="text-sm">Carrinhos Arquivados</span>
-          {notificationCount > 0 && (
-            <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
-              {notificationCount}
-            </span>
-          )}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowArchiveModal(true)}
+            className="flex items-center space-x-2 bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded-md relative"
+          >
+            <ArchiveRestore className="w-4 h-4" />
+            <span className="text-sm">Carrinhos Arquivados</span>
+            {notificationCount > 0 && (
+              <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                {notificationCount}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={async () => {
+              setShowHistoryModal(true);
+              setHistoryError(null);
+              setHistoryLoading(true);
+              try {
+                const url = new URL('http://localhost:3001/api/sales');
+                url.searchParams.set('startDate', historyStart);
+                url.searchParams.set('endDate', historyEnd);
+                const res = await fetch(url.toString());
+                if (!res.ok) {
+                  const err = await res.json().catch(()=>({}));
+                  throw new Error(err.message || 'Erro ao carregar histórico');
+                }
+                const data = await res.json();
+                setHistoryData(Array.isArray(data) ? data : []);
+              } catch (e:any) {
+                setHistoryError(e.message || 'Erro ao carregar histórico');
+              } finally {
+                setHistoryLoading(false);
+              }
+            }}
+            className="flex items-center space-x-2 bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded-md"
+          >
+            <FileText className="w-4 h-4" />
+            <span className="text-sm">Histórico de Vendas</span>
+          </button>
+        </div>
       </div>
 
       {archiveMessage && (
@@ -319,24 +386,49 @@ function Sales() {
                   value={receivedAmount === '' ? '' : receivedAmount}
                   onChange={e => setReceivedAmount(e.target.value === '' ? '' : Number(e.target.value))}
                 />
-                {troco !== null && troco >= 0 && (
-                  <p className="text-sm text-green-600 mt-1 flex items-center">
+                {typeof receivedAmount === 'number' && (
+                  <p className={`text-sm mt-1 flex items-center ${receivedAmount >= total ? 'text-green-600' : 'text-red-600'}`}>
                     <CheckCircle className="w-4 h-4 mr-1" />
-                    Troco: R$ {troco.toFixed(2)}
+                    {receivedAmount >= total ? `Troco: R$ ${(receivedAmount - total).toFixed(2)}` : `Falta: R$ ${(total - receivedAmount).toFixed(2)}`}
                   </p>
                 )}
               </div>
             )}
 
-            <div>
+            <div className="relative">
               <label className="text-sm text-gray-600 font-medium mb-1 block">Cliente (opcional)</label>
               <input
                 type="text"
-                placeholder="ID do cliente"
+                placeholder="Digite o nome do cliente..."
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                value={customerId}
-                onChange={(e) => setCustomerId(e.target.value)}
+                value={customerId ? customerQuery : customerQuery}
+                onChange={(e) => { setCustomerQuery(e.target.value); if (customerId) setCustomerId(''); }}
+                onFocus={() => { if (customerQuery && customerOptions.length === 0) setCustomerQuery(customerQuery); }}
               />
+              {customerQuery && !customerId && (
+                <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow max-h-56 overflow-y-auto">
+                  {loadingCustomers ? (
+                    <div className="p-3 text-sm text-gray-500">Carregando...</div>
+                  ) : customerOptions.length === 0 ? (
+                    <div className="p-3 text-sm text-gray-500">Nenhum cliente encontrado</div>
+                  ) : (
+                    customerOptions.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                        onClick={() => {
+                          setCustomerId(c.id);
+                          setCustomerQuery(c.name);
+                          setCustomerOptions([]);
+                        }}
+                      >
+                        {c.name}
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
             </div>
 
             <div>
@@ -359,7 +451,7 @@ function Sales() {
 
             <button
               className="w-full py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 flex items-center justify-center space-x-2"
-              disabled={cart.length === 0 || finalizing}
+              disabled={cart.length === 0 || finalizing || (paymentMethod === 'dinheiro' && (typeof receivedAmount === 'number') && receivedAmount < total)}
               onClick={finalizeSale}
             >
               {finalizing ? (
@@ -464,6 +556,137 @@ function Sales() {
           </div>
         </div>
       )}
+
+      {/* Modal de Histórico de Vendas */}
+      {showHistoryModal && (
+        <div className="fixed inset-0 flex items-center justify-center z-50 bg-black/50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-4xl shadow-lg space-y-4 max-h-[85vh]">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-semibold flex items-center space-x-2">
+                <FileText className="w-5 h-5" />
+                <span>Histórico de Vendas</span>
+              </h3>
+              <button onClick={() => setShowHistoryModal(false)}>
+                <X className="w-5 h-5 text-gray-500 hover:text-gray-700" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Início</label>
+                <input type="date" value={historyStart} onChange={(e)=>setHistoryStart(e.target.value)} className="w-full border border-gray-300 rounded px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Fim</label>
+                <input type="date" value={historyEnd} onChange={(e)=>setHistoryEnd(e.target.value)} className="w-full border border-gray-300 rounded px-3 py-2 text-sm" />
+              </div>
+              <div className="md:col-span-3">
+                <button
+                  onClick={async ()=>{
+                    setHistoryLoading(true);
+                    setHistoryError(null);
+                    try {
+                      const url = new URL('http://localhost:3001/api/sales');
+                      url.searchParams.set('startDate', historyStart);
+                      url.searchParams.set('endDate', historyEnd);
+                      const res = await fetch(url.toString());
+                      if (!res.ok) {
+                        const err = await res.json().catch(()=>({}));
+                        throw new Error(err.message || 'Erro ao carregar histórico');
+                      }
+                      const data = await res.json();
+                      setHistoryData(Array.isArray(data) ? data : []);
+                    } catch (e:any) {
+                      setHistoryError(e.message || 'Erro ao carregar histórico');
+                    } finally {
+                      setHistoryLoading(false);
+                    }
+                  }}
+                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                >
+                  Filtrar
+                </button>
+              </div>
+            </div>
+
+            {historyError && (
+              <div className="bg-red-100 border border-red-400 text-red-700 p-3 rounded flex items-center space-x-2">
+                <AlertCircle className="w-4 h-4" />
+                <span>{historyError}</span>
+              </div>
+            )}
+
+            {historyLoading ? (
+              <div className="p-6 text-center">Carregando...</div>
+            ) : (
+              <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Data</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Produto</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Valor Pago</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Pagamento</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {historyData.map((h:any, idx:number)=> (
+                      <tr key={idx} className="hover:bg-gray-50">
+                        <td className="px-4 py-2 text-sm text-gray-700">{new Date(h.sale_date || h.date || '').toLocaleString()}</td>
+                        <td className="px-4 py-2 text-sm text-gray-700">{h.product_name || '-'}</td>
+                        <td className="px-4 py-2 text-sm font-semibold">R$ {Number(h.total || 0).toFixed(2)}</td>
+                        <td className="px-4 py-2 text-sm text-gray-700">{String(h.payment_method || '').toUpperCase()}</td>
+                        <td className="px-4 py-2 text-sm text-gray-700">
+                          <button
+                            className="text-red-600 hover:underline"
+                            onClick={() => setConfirmReturnId(h.sale_id)}
+                          >
+                            Devolver
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Confirmação de devolução */}
+      {confirmReturnId && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+          <div className="bg-white rounded-lg p-6 w-full max-w-sm shadow-lg">
+            <h4 className="text-lg font-semibold mb-3">Confirmar devolução</h4>
+            <p className="text-sm text-gray-700 mb-4">Tem certeza que deseja devolver esta venda? Esta ação não pode ser desfeita.</p>
+            <div className="flex justify-end gap-2">
+              <button className="px-3 py-2 rounded-md bg-gray-100 hover:bg-gray-200 text-gray-800 text-sm" onClick={() => setConfirmReturnId(null)}>Cancelar</button>
+              <button
+                className="px-3 py-2 rounded-md bg-red-600 hover:bg-red-700 text-white text-sm"
+                onClick={async () => {
+                  try {
+                    const res = await fetch(`http://localhost:3001/api/sales/${confirmReturnId}/return`, { method: 'POST' });
+                    if (!res.ok) {
+                      const err = await res.json().catch(()=>({}));
+                      throw new Error(err.message || 'Erro na devolução');
+                    }
+                    setHistoryData(prev => prev.filter((s:any) => s.sale_id !== confirmReturnId));
+                    setConfirmReturnId(null);
+                  } catch (e:any) {
+                    setHistoryError(e.message || 'Erro na devolução');
+                  }
+                }}
+              >
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* sem histórico (estado inicial) */}
     </div>
   );
 }

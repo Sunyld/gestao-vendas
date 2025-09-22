@@ -1,18 +1,8 @@
-const express = require("express");
-const app = express();
-const authRoutes = require("./routes/auth");
+import { Router } from "express";
+import authController from "../controllers/authController.js";
 
-app.use(express.json());
+const router = Router();
 
-// Habilitar CORS se necessário (exemplo)
-const cors = require("cors");
-app.use(cors());
+router.post("/login", authController.login);
 
-// Usar as rotas de autenticação prefixadas com /api/auth, por exemplo
-app.use("/api/auth", authRoutes);
-
-// Porta e start do servidor
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log(`Servidor rodando na porta ${PORT}`);
-});
+export default router;
