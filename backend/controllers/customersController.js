@@ -180,6 +180,13 @@ const customersController = {
   removeRepairItem: async (req, res) => {
     try {
       const { itemId } = req.params;
+      
+      // Verifica se o item existe antes de tentar remover
+      const existingItem = await query("SELECT id FROM repair_items WHERE id = ?", [itemId]);
+      if (existingItem.length === 0) {
+        return res.status(404).json({ message: "Item não encontrado." });
+      }
+      
       await query("DELETE FROM repair_items WHERE id = ?", [itemId]);
       return res.status(200).json({ message: "Item removido." });
     } catch (error) {

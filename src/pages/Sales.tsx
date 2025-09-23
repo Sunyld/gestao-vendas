@@ -378,7 +378,9 @@ function Sales() {
           <div className="p-4 border-t border-gray-100 space-y-4">
             {paymentMethod === 'dinheiro' && (
               <div>
-                <label className="text-sm text-gray-600 font-medium mb-1 block">Valor Recebido</label>
+                <label className="text-sm text-gray-600 font-medium mb-1 block">
+                  Valor Recebido <span className="text-red-500">*</span>
+                </label>
                 <input
                   type="number"
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
@@ -386,7 +388,12 @@ function Sales() {
                   value={receivedAmount === '' ? '' : receivedAmount}
                   onChange={e => setReceivedAmount(e.target.value === '' ? '' : Number(e.target.value))}
                 />
-                {typeof receivedAmount === 'number' && (
+                {receivedAmount === '' ? (
+                  <p className="text-sm mt-1 text-red-600 flex items-center">
+                    <AlertCircle className="w-4 h-4 mr-1" />
+                    Campo obrigatório para calcular o troco
+                  </p>
+                ) : typeof receivedAmount === 'number' && (
                   <p className={`text-sm mt-1 flex items-center ${receivedAmount >= total ? 'text-green-600' : 'text-red-600'}`}>
                     <CheckCircle className="w-4 h-4 mr-1" />
                     {receivedAmount >= total ? `Troco: R$ ${(receivedAmount - total).toFixed(2)}` : `Falta: R$ ${(total - receivedAmount).toFixed(2)}`}
@@ -451,7 +458,7 @@ function Sales() {
 
             <button
               className="w-full py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 flex items-center justify-center space-x-2"
-              disabled={cart.length === 0 || finalizing || (paymentMethod === 'dinheiro' && (typeof receivedAmount === 'number') && receivedAmount < total)}
+              disabled={cart.length === 0 || finalizing || (paymentMethod === 'dinheiro' && (receivedAmount === '' || (typeof receivedAmount === 'number' && receivedAmount < total)))}
               onClick={finalizeSale}
             >
               {finalizing ? (

@@ -34,7 +34,15 @@ function mapClientFromApi(customer: any) {
   return {
     ...customer,
     cpf_NUIT: customer.cpf_NUIT ?? customer.cpf_cnpj ?? "",
-    vehicles: Array.isArray(customer.vehicles) ? customer.vehicles : [],
+    vehicles: Array.isArray(customer.vehicles) ? customer.vehicles.map((vehicle: any) => ({
+      ...vehicle,
+      items: Array.isArray(vehicle.items) ? vehicle.items.map((item: any) => ({
+        ...item,
+        cost: Number(item.cost) || 0,
+        paid: Boolean(item.paid),
+        paid_value: item.paid_value ? Number(item.paid_value) : null
+      })) : []
+    })) : [],
   };
 }
 

@@ -75,6 +75,8 @@ function Customers() {
     [itemId: string]: { paid: boolean; method: string; paidValue?: number; change?: number };
   }>({});
   const [showPaymentPopup, setShowPaymentPopup] = useState<{ show: boolean; itemId?: string; message?: string }>({ show: false });
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [paymentLoading, setPaymentLoading] = useState<{ [itemId: string]: boolean }>({});
 
   useEffect(() => {
     fetchCustomers();
@@ -113,31 +115,93 @@ function Customers() {
     try {
       if (!formData.name.trim()) {
         setError("O nome do cliente é obrigatório");
-      return;
-    }
+        return;
+      }
+
+      // Helper para detectar IDs reais (UUID do backend)
+      const isRealId = (id?: string) => !!id && id.includes("-");
 
       if (selectedCustomer) {
+        // 1) Atualiza dados básicos do cliente
         await customerService.updateCustomer(selectedCustomer.id, formData);
-        for (const v of formData.vehicles) {
-          let vehicleId = v.id;
-          if (!vehicleId) {
-            const created = await customerService.addVehicle(selectedCustomer.id, { model: v.model, plate: v.plate });
-            vehicleId = created.id;
-          } else {
-            await customerService.updateVehicle(vehicleId, { model: v.model, plate: v.plate });
-          }
-          for (const it of v.items) {
-            if (!it.id) await customerService.addRepairItem(vehicleId, { description: it.description, cost: it.cost });
-            else await customerService.updateRepairItem(it.id, { description: it.description, cost: it.cost });
+
+        // 2) SINCRONIZAÇÃO COMPLETA: Remove do banco tudo que não está mais no formulário
+        
+        // Remove veículos que não estão mais no formulário
+        const originalVehicles = selectedCustomer.vehicles || [];
+        const currentVehicles = formData.vehicles || [];
+        const currentRealVehicleIds = new Set(
+          currentVehicles.map((v) => (isRealId(v.id) ? v.id : "")).filter(Boolean)
+        );
+        
+        for (const originalVehicle of originalVehicles) {
+          if (isRealId(originalVehicle.id) && !currentRealVehicleIds.has(originalVehicle.id)) {
+            await customerService.removeVehicle(originalVehicle.id);
           }
         }
+
+        // 3) Processa cada veículo do formulário
+        for (const v of currentVehicles) {
+          let vehicleId = isRealId(v.id) ? v.id : "";
+
+          if (!isRealId(vehicleId)) {
+            // Veículo novo: cria no banco
+            const created = await customerService.addVehicle(selectedCustomer.id, {
+              model: v.model,
+              plate: v.plate,
+            });
+            vehicleId = created.id;
+          } else {
+            // Veículo existente: atualiza no banco
+            await customerService.updateVehicle(vehicleId, { model: v.model, plate: v.plate });
+          }
+
+          // 4) SINCRONIZAÇÃO DE ITENS: Remove itens que não estão mais no formulário
+          const originalVehicle = originalVehicles.find((ov) => ov.id === vehicleId);
+          const originalItems = originalVehicle?.items || [];
+          const currentItems = v.items || [];
+          const currentRealItemIds = new Set(
+            currentItems.map((it) => (isRealId(it.id) ? it.id : "")).filter(Boolean)
+          );
+
+          // Remove itens que foram deletados no formulário
+          for (const originalItem of originalItems) {
+            if (isRealId(originalItem.id) && !currentRealItemIds.has(originalItem.id)) {
+              await customerService.removeRepairItem(originalItem.id);
+            }
+          }
+
+          // 5) Processa cada item do formulário
+          for (const it of currentItems) {
+            if (!isRealId(it.id)) {
+              // Item novo: cria no banco
+              await customerService.addRepairItem(vehicleId, {
+                description: it.description,
+                cost: Number(it.cost) || 0,
+              });
+            } else {
+              // Item existente: atualiza no banco
+              await customerService.updateRepairItem(it.id, {
+                description: it.description,
+                cost: Number(it.cost) || 0,
+              });
+            }
+          }
+        }
+
         setSuccessMessage("Cliente atualizado com sucesso!");
       } else {
+        // Cliente novo: cria tudo
         const created = await customerService.createCustomer(formData as any);
         const customerId = created.id;
         for (const v of formData.vehicles) {
           const vehicle = await customerService.addVehicle(customerId, { model: v.model, plate: v.plate });
-          for (const it of v.items) await customerService.addRepairItem(vehicle.id, { description: it.description, cost: it.cost });
+          for (const it of v.items) {
+            await customerService.addRepairItem(vehicle.id, { 
+              description: it.description, 
+              cost: Number(it.cost) || 0 
+            });
+          }
         }
         setSuccessMessage("Cliente cadastrado com sucesso!");
       }
@@ -188,26 +252,6 @@ function Customers() {
     }
   };
 
-  const payAllForCustomer = async (customer: Customer, method: string) => {
-    try {
-      const response = await fetch(`http://localhost:3001/api/customers/${customer.id}/pay-all`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ payment_method: method })
-      });
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err.message || 'Erro ao pagar todos os itens');
-      }
-      const res = await response.json();
-      setSuccessMessage(`Pago ${res.paidCount} item(ns) de ${customer.name}. Total: R$ ${(Number(res.totalValue)||0).toFixed(2)}`);
-      await fetchCustomers();
-      setTimeout(() => setSuccessMessage(null), 2500);
-    } catch (err:any) {
-      setError(err.message || 'Erro ao pagar todos os itens');
-      setTimeout(() => setError(null), 2500);
-    }
-  };
 
   const resetForm = () => {
     setFormData({
@@ -232,18 +276,51 @@ function Customers() {
     setFormData({ ...formData, vehicles: formData.vehicles.map((v) => (v.id === vehicleId ? { ...v, [field]: value } : v)) });
   };
 
-  const addRepairItem = (vehicleId: string) => {
+  const addRepairItem = async (vehicleId: string) => {
+    // Só cria no banco se o veículo já existe (tem UUID real)
+    if (selectedCustomer && vehicleId.includes("-")) {
+      try {
+        const created = await customerService.addRepairItem(vehicleId, { description: "", cost: 0 });
+        setFormData({
+          ...formData,
+          vehicles: formData.vehicles.map(v => v.id === vehicleId ? { ...v, items: [...v.items, created] } : v)
+        });
+        setSuccessMessage("Item adicionado!");
+        setTimeout(() => setSuccessMessage(null), 2000);
+        return;
+      } catch (err: any) {
+        setError(err?.message || "Erro ao adicionar item");
+        setTimeout(() => setError(null), 2500);
+        return;
+      }
+    }
+    // Veículo ainda não persistido: modo local
     const newItem: RepairItem = { id: Date.now().toString(), description: "", cost: 0, paid: false, paymentMethod: "" };
     setFormData({ ...formData, vehicles: formData.vehicles.map((v) => (v.id === vehicleId ? { ...v, items: [...v.items, newItem] } : v)) });
   };
 
-  const updateRepairItem = (vehicleId: string, itemId: string, field: string, value: string | number) => {
+  const updateRepairItem = async (vehicleId: string, itemId: string, field: string, value: string | number) => {
     setFormData({
       ...formData,
       vehicles: formData.vehicles.map((v) =>
         v.id === vehicleId ? { ...v, items: v.items.map((i) => (i.id === itemId ? { ...i, [field]: value } : i)) } : v
       ),
     });
+
+    // Só atualiza no banco se o item já existe (tem UUID real) E o veículo também existe
+    if (selectedCustomer && itemId.includes("-") && vehicleId.includes("-")) {
+      try {
+        const vehicle = formData.vehicles.find(v => v.id === vehicleId);
+        const item = vehicle?.items.find(i => i.id === itemId);
+        await customerService.updateRepairItem(itemId, { 
+          description: field === "description" ? String(value) : (item?.description || ""), 
+          cost: field === "cost" ? Number(value) : (item?.cost || 0) 
+        });
+      } catch (err: any) {
+        setError(err?.message || "Erro ao atualizar item");
+        setTimeout(() => setError(null), 2500);
+      }
+    }
   };
 
   const filteredCustomers = customers.filter(
@@ -465,29 +542,69 @@ function Customers() {
                           )}
 
                           <Button
-                            disabled={!payment.method || (payment.method === "Dinheiro" && (!(payment.paidValue >= remaining)))}
+                            disabled={!payment.method || (payment.method === "Dinheiro" && (!((payment.paidValue || 0) >= remaining))) || paymentLoading[item.id]}
                             className="md:w-40"
                             onClick={async () => {
                               if (!payment.method) return;
+                              
+                              // Inicia o loading
+                              setPaymentLoading(prev => ({ ...prev, [item.id]: true }));
+                              
                               try {
                                 await customerService.payRepairItem(item.id, {
                                   payment_method: payment.method,
                                   paid_value: payment.paidValue,
                                 });
+                                
+                                // Atualiza o estado local imediatamente - marca o item como pago
+                                setCustomers(prevCustomers => 
+                                  prevCustomers.map(customer => 
+                                    customer.id === selectedCustomer?.id 
+                                      ? {
+                                          ...customer,
+                                          vehicles: customer.vehicles.map(vehicle =>
+                                            vehicle.id === vehicle.id
+                                              ? {
+                                                  ...vehicle,
+                                                  items: vehicle.items.map(vehicleItem =>
+                                                    vehicleItem.id === item.id
+                                                      ? { ...vehicleItem, paid: true, payment_method: payment.method, paid_value: Number(item.cost) }
+                                                      : vehicleItem
+                                                  )
+                                                }
+                                              : vehicle
+                                          )
+                                        }
+                                      : customer
+                                  )
+                                );
+                                
                                 setShowPaymentPopup({
                                   show: true,
                                   message: `Pagamento de "${item.description}" confirmado via ${payment.method}${change > 0 ? ` (Troco: R$ ${change.toFixed(2)})` : ""}`,
                                 });
-                                await fetchCustomers();
+                                
+                                // Limpa os dados de pagamento
                                 setPaymentData((prev) => { const up = { ...prev } as any; delete up[item.id]; return up; });
+                                
                                 setTimeout(() => setShowPaymentPopup({ show: false }), 2500);
                               } catch (err: any) {
                                 setError(err?.response?.data?.message || err.message || "Erro ao processar pagamento");
                                 setTimeout(() => setError(null), 2500);
+                              } finally {
+                                // Remove o loading
+                                setPaymentLoading(prev => { const up = { ...prev }; delete up[item.id]; return up; });
                               }
                             }}
                           >
-                            Confirmar pagamento
+                            {paymentLoading[item.id] ? (
+                              <div className="flex items-center">
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                                Processando...
+                              </div>
+                            ) : (
+                              "Confirmar pagamento"
+                            )}
                           </Button>
                         </div>
 
@@ -551,9 +668,23 @@ function Customers() {
                       {vehicle.items.map(item => (
                         <div key={item.id} className="flex gap-2">
                           <Input placeholder="Descrição" value={item.description} onChange={(e) => updateRepairItem(vehicle.id, item.id, "description", e.target.value)} />
-                          <Input type="number" placeholder="Custo" value={item.cost} onChange={(e) => updateRepairItem(vehicle.id, item.id, "cost", parseFloat(e.target.value))} />
-                          <Button type="button" variant="destructive" onClick={() => {
-                            setFormData({ ...formData, vehicles: formData.vehicles.map(v => v.id === vehicle.id ? { ...v, items: v.items.filter(i => i.id !== item.id) } : v) });
+                          <Input type="number" placeholder="Custo" value={item.cost || ""} onChange={(e) => updateRepairItem(vehicle.id, item.id, "cost", parseFloat(e.target.value) || 0)} />
+                          <Button type="button" variant="destructive" onClick={async () => {
+                            try {
+                              if (item.id.includes("-")) {
+                                // Item já existe no banco: remove do backend
+                                await customerService.removeRepairItem(item.id);
+                                setFormData({ ...formData, vehicles: formData.vehicles.map(v => v.id === vehicle.id ? { ...v, items: v.items.filter(i => i.id !== item.id) } : v) });
+                                setSuccessMessage("Item removido!");
+                                setTimeout(() => setSuccessMessage(null), 2000);
+                              } else {
+                                // Item temporário: remove apenas do formulário
+                                setFormData({ ...formData, vehicles: formData.vehicles.map(v => v.id === vehicle.id ? { ...v, items: v.items.filter(i => i.id !== item.id) } : v) });
+                              }
+                            } catch (err: any) {
+                              setError(err?.message || "Erro ao remover item");
+                              setTimeout(() => setError(null), 2500);
+                            }
                           }}>Remover</Button>
                         </div>
                       ))}
